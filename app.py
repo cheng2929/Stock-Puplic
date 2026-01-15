@@ -8,14 +8,27 @@ from io import BytesIO
 # --- 1. 頁面基本設定 ---
 st.set_page_config(page_title="永豐金證券 - 帳單分析器", page_icon="🚀", layout="wide")
 
-# --- 2. 隱身術 CSS (隱藏選單與頁尾) ---
-#這段代碼會把右上角的漢堡選單、下方的 Made with Streamlit 以及頂部紅線藏起來
+# --- 2. 超級隱身術 CSS (關鍵修改) ---
+# 這段 CSS 會隱藏開發者工具列、選單、頁尾
 hide_streamlit_style = """
 <style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-.block-container {padding-top: 1rem;} /* 讓內容往上移一點，不要留白太多 */
+    /* 1. 隱藏右上角漢堡選單 */
+    #MainMenu {visibility: hidden;}
+    
+    /* 2. 隱藏頁尾 "Made with Streamlit" */
+    footer {visibility: hidden;}
+    
+    /* 3. 隱藏上方裝飾條 */
+    header {visibility: hidden;}
+    
+    /* 4. [關鍵] 隱藏右下角開發者工具列 (包含個人頭像與其他作品建議) */
+    [data-testid="stToolbar"] {visibility: hidden !important;}
+    
+    /* 5. 隱藏載入狀態的小動畫 (選用) */
+    [data-testid="stStatusWidget"] {visibility: hidden !important;}
+
+    /* 6. 調整頂部留白，因為 Header 隱藏了，內容往上移一點才好看 */
+    .block-container {padding-top: 1rem;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -40,6 +53,7 @@ with st.sidebar:
 # --- 5. 工具函式：轉 Excel ---
 def to_excel(df):
     output = BytesIO()
+    # 注意：這裡需要 requirements.txt 裡有安裝 xlsxwriter
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     processed_data = output.getvalue()
@@ -167,12 +181,21 @@ if uploaded_file and pdf_password:
                         df_final = large
 
                     # 圓餅圖
-                    fig = px.pie(df_final, values='市值', names='名稱', hole=0.45, title='資產配置')
+                    st.subheader("🍰 資產配置 (以市值計算)")
+                    fig = px.pie(df_final, values='市值', names='名稱', hole=0.45)
                     fig.update_traces(textposition='outside', textinfo='percent+label')
                     # 隱藏圖例 + 增加邊距
                     fig.update_layout(showlegend=False, margin=dict(t=50, b=50, l=50, r=50))
                     
                     st.plotly_chart(fig, use_container_width=True)
+                    
+                    st.divider()
+                    
+                    # 長條圖 (市值排行)
+                    st.subheader("📊 持股規模排行")
+                    df_sorted = df_viz.sort_values(by="市值", ascending=True)
+                    fig_bar = px.bar(df_sorted, x='市值', y='名稱', orientation='h', text_auto='.2s', color='市值')
+                    st.plotly_chart(fig_bar, use_container_width=True)
 
     except Exception as e:
         st.error(f"解析錯誤: {e}")
