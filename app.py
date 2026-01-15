@@ -5,27 +5,39 @@ import re
 import plotly.express as px
 from io import BytesIO
 
-# --- 設定頁面 (公開版) ---
-st.set_page_config(page_title="永豐金帳單分析器 (公開版)", page_icon="🚀", layout="wide")
+# --- 1. 頁面基本設定 ---
+st.set_page_config(page_title="永豐金證券 - 帳單分析器", page_icon="🚀", layout="wide")
 
+# --- 2. 隱身術 CSS (隱藏選單與頁尾) ---
+#這段代碼會把右上角的漢堡選單、下方的 Made with Streamlit 以及頂部紅線藏起來
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+.block-container {padding-top: 1rem;} /* 讓內容往上移一點，不要留白太多 */
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# --- 3. 標題與說明 ---
 st.title("🚀 永豐金證券 - 月帳單分析工具")
 st.markdown("""
 ### 👋 歡迎使用！
-這是一個純前端的分析工具：
-1. **隱私安全**：您的 PDF 僅在記憶體中運算，**不會**被儲存或上傳到任何伺服器。
-2. **專屬格式**：目前僅支援 **永豐金證券** 的電子月對帳單。
-3. **資料帶走**：分析結果提供 Excel/CSV 下載功能。
+這是一個純前端的分析工具，專為 **永豐金證券** 電子月結單設計：
+* 🛡️ **隱私安全**：您的 PDF 僅在記憶體中運算，**不會**被儲存或上傳。
+* 📂 **資料帶走**：分析結果提供 Excel 下載功能。
 """)
 
-# --- 側邊欄 ---
+# --- 4. 側邊欄：上傳區 ---
 with st.sidebar:
     st.header("📂 檔案上傳")
     pdf_password = st.text_input("PDF 密碼", type="password", help="預設通常是身分證字號")
     uploaded_file = st.file_uploader("請上傳月結單 (PDF)", type=["pdf"])
     st.divider()
-    st.info("💡 提示：此工具由 Python 社群開發者分享，非永豐金官方軟體。")
+    st.caption("💡 此工具由 Python 社群開發者分享，非永豐金官方軟體。")
 
-# --- 轉換 DataFrame 為 Excel 的函式 ---
+# --- 5. 工具函式：轉 Excel ---
 def to_excel(df):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -33,6 +45,7 @@ def to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
+# --- 6. 主程式邏輯 ---
 if uploaded_file and pdf_password:
     try:
         with pdfplumber.open(uploaded_file, password=pdf_password) as pdf:
@@ -41,7 +54,6 @@ if uploaded_file and pdf_password:
             inventory_items = []    # 庫存
             transaction_items = []  # 交易
 
-            # --- 解析核心邏輯 (與原本相同) ---
             for page in pdf.pages:
                 tables = page.extract_tables()
                 for table in tables:
@@ -51,7 +63,7 @@ if uploaded_file and pdf_password:
                         full_row_text = " ".join([str(x) for x in row if x is not None])
                         parts = full_row_text.split()
 
-                        # 庫存解析
+                        # 解析庫存
                         if len(parts) > 5 and parts[0] in ["現股", "融資", "融券"] and "/" not in parts[0]:
                             try:
                                 item = {
@@ -67,7 +79,7 @@ if uploaded_file and pdf_password:
                                 inventory_items.append(item)
                             except: pass 
 
-                        # 交易解析
+                        # 解析交易
                         elif re.match(r"\d{4}/\d{2}/\d{2}", parts[0]):
                             try:
                                 date, type_str, name = parts[0], parts[1], parts[2]
@@ -90,23 +102,23 @@ if uploaded_file and pdf_password:
                                 })
                             except: pass
 
-            # --- 顯示結果與下載區 ---
+            # --- 7. 顯示結果分頁 ---
             tab1, tab2, tab3 = st.tabs(["📊 庫存資產", "💰 本月交易", "📈 視覺化報告"])
 
+            # 分頁 1: 庫存
             with tab1:
                 if inventory_items:
                     df_inv = pd.DataFrame(inventory_items)
                     
-                    # 顯示 KPI
                     c1, c2, c3 = st.columns(3)
                     c1.metric("總市值", f"${df_inv['市值'].sum():,.0f}")
                     c2.metric("總成本", f"${df_inv['總成本'].sum():,.0f}")
                     profit = df_inv['市值'].sum() - df_inv['總成本'].sum()
-                    c3.metric("帳面損益", f"${profit:,.0f}")
+                    roi = profit / df_inv['總成本'].sum() * 100 if df_inv['總成本'].sum() != 0 else 0
+                    c3.metric("帳面損益", f"${profit:,.0f}", f"{roi:.2f}%")
 
                     st.dataframe(df_inv, use_container_width=True)
                     
-                    # 下載按鈕
                     st.download_button(
                         label="📥 下載庫存清單 (Excel)",
                         data=to_excel(df_inv),
@@ -116,6 +128,7 @@ if uploaded_file and pdf_password:
                 else:
                     st.warning("查無庫存資料")
 
+            # 分頁 2: 交易
             with tab2:
                 if transaction_items:
                     df_trans = pd.DataFrame(transaction_items)
@@ -126,7 +139,6 @@ if uploaded_file and pdf_password:
 
                     st.dataframe(df_trans, use_container_width=True)
 
-                    # 下載按鈕
                     st.download_button(
                         label="📥 下載交易明細 (Excel)",
                         data=to_excel(df_trans),
@@ -136,11 +148,12 @@ if uploaded_file and pdf_password:
                 else:
                     st.info("本月無交易紀錄")
 
+            # 分頁 3: 視覺化 (無圖例版)
             with tab3:
                 if inventory_items:
                     df_viz = pd.DataFrame(inventory_items)
                     
-                    # 視覺化邏輯 (無圖例版)
+                    # 處理小額部位
                     df_pie = df_viz.copy()
                     total_mv = df_pie["市值"].sum()
                     threshold = 0.02
@@ -153,8 +166,10 @@ if uploaded_file and pdf_password:
                     else:
                         df_final = large
 
+                    # 圓餅圖
                     fig = px.pie(df_final, values='市值', names='名稱', hole=0.45, title='資產配置')
                     fig.update_traces(textposition='outside', textinfo='percent+label')
+                    # 隱藏圖例 + 增加邊距
                     fig.update_layout(showlegend=False, margin=dict(t=50, b=50, l=50, r=50))
                     
                     st.plotly_chart(fig, use_container_width=True)
